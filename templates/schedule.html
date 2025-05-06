@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Feeding Schedule{% endblock %}
+
+{% block content %}
+    <h1>🐾 Feeding Schedule</h1>
+    <form method="POST">
+        <label>Time (HH:MM): <input type="time" name="time" required></label><br><br>
+        <label>Amount: <input type="text" name="amount" placeholder="e.g., 50g" required></label><br><br>
+        <label>Notes: <input type="text" name="notes"></label><br><br>
+        <button type="submit">Add Schedule</button>
+    </form>
+
+    <h2>Current Schedules:</h2>
+    <table border="1" style="width:100%; max-width:600px;">
+        <thead><tr><th>Time</th><th>Amount</th><th>Notes</th><th>Action</th></tr></thead>
+        <tbody>
+        {% for s in schedules %}
+            <tr>
+                <td>{{ s[1] }}</td>
+                <td>{{ s[2] }}</td>
+                <td>{{ s[3] }}</td>
+                <td>
+                    <button onclick="deleteSchedule({{ s[0] }})">Delete</button>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <br>
+    <button onclick="window.location.href='/'">Back to Home</button>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        function deleteSchedule(id) {
+            if (confirm("Are you sure you want to delete this schedule?")) {
+                fetch('/delete-schedule/' + id, {method:'POST'})
+                .then(res => res.json())
+                .then(data => {
+                    alert(data.message);
+                    window.location.reload();
+                });
+            }
+        }
+    </script>
+{% endblock %} 

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}My Devices{% endblock %}
+
+{% block content %}
+    <h1>📱 My Devices (Push Subscriptions)</h1>
+    <table border="1" style="width:100%; max-width:800px;">
+        <thead><tr><th>#</th><th>Endpoint (truncated)</th><th>Action</th></tr></thead>
+        <tbody>
+        {% for idx, sub in rows %}
+            <tr>
+                <td>{{ idx }}</td>
+                <td style="word-break:break-all;">{{ sub["endpoint"][:60] }}…</td>
+                <td><button onclick="delSub({{ idx }})">Delete</button></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <br>
+    <button onclick="window.location.href='/'">Back to Home</button>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        function delSub(idx) {
+            if(confirm("Remove this device?")) {
+                fetch('/delete-sub/'+idx, {method:'POST'})
+                .then(r => r.json())
+                .then(d => { 
+                    alert(d.message); 
+                    location.reload(); 
+                })
+                .catch(console.error);
+            }
+        }
+    </script>
+{% endblock %} 

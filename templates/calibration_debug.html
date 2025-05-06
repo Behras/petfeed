@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block title %}Calibration Debug{% endblock %}
+
+{% block extra_head %}
+<style>
+    .debug-section {
+        margin-bottom: 20px;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+    }
+    pre {
+        background-color: #f5f5f5;
+        padding: 10px;
+        border-radius: 5px;
+        overflow-x: auto;
+    }
+    .button-row {
+        margin: 15px 0;
+    }
+    button {
+        margin-right: 10px;
+        padding: 8px 15px;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    th, td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+    }
+    th {
+        background-color: #f2f2f2;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>🔧 Calibration Debugging</h1>
+
+<div class="button-row">
+    <button onclick="fetchDebugInfo()">Refresh Debug Info</button>
+    <button onclick="window.location.href='/'">Back to Home</button>
+    <button onclick="window.location.href='/dev-options'">Dev Options</button>
+</div>
+
+<div class="debug-section">
+    <h2>Current State</h2>
+    <div id="current-values">Loading...</div>
+</div>
+
+<div class="debug-section">
+    <h2>Calibration Factors</h2>
+    <div id="calibration-factors">Loading...</div>
+</div>
+
+<div class="debug-section">
+    <h2>Calibration Instructions</h2>
+    <ol>
+        <li><strong>First, remove all weights</strong> from the scale.</li>
+        <li>Press the <strong>Tare</strong> button in the Dev Options page to set zero point when scale is empty.</li>
+        <li>Place your known weight (e.g., 73g) on the scale.</li>
+        <li>Enter the exact weight below and click "Apply Fix".</li>
+        <li>When testing, remember to remove the weight - reading should return to 0g.</li>
+    </ol>
+    <p><strong>Important:</strong> Always tare the scale when it's empty before calibration. This ensures proper zero-point reference.</p>
+</div>
+
+<div class="debug-section">
+    <h2>Calculate & Apply Fix</h2>
+    <p>Current weight on scales (expected to be 73g):</p>
+    
+    <div>
+        <label>Scale 1:</label>
+        <input type="number" id="weight1" value="73.0" step="0.1" min="0" style="width:80px;">
+        <button onclick="fixCalibration(1)">Apply Fix for Scale 1</button>
+        <span id="fix-result1"></span>
+    </div>
+    
+    <div style="margin-top: 10px;">
+        <label>Scale 2:</label>
+        <input type="number" id="weight2" value="73.0" step="0.1" min="0" style="width:80px;">
+        <button onclick="fixCalibration(2)">Apply Fix for Scale 2</button>
+        <span id="fix-result2"></span>
+    </div>
+</div>
+
+<div class="debug-section">
+    <h2>Zero Offsets</h2>
+    <p>Zero offsets are used to establish the "zero" point of each scale and should be set when the scale is empty.</p>
+    <div id="zero-offsets">Loading...</div>
+    <div class="button-row">
+        <button onclick="resetZeroOffset(1)">Reset Scale 1 Offset</button>
+        <button onclick="resetZeroOffset(2)">Reset Scale 2 Offset</button>
+    </div>
+</div>
+
+<div class="debug-section">
+    <h2>Recent Readings</h2>
+    <div id="recent-readings">Loading...</div>
+</div>
+
+<div class="debug-section">
+    <h2>Debug JSON Response</h2>
+    <pre id="debug-json">Loading...</pre>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function fetchDebugInfo() {
+    fetch('/debug-calibration')
+    .then(response => response.json())
+    .then(data => {
+        // Update debug JSON
+        document.getElementById('debug-json').textContent = JSON.stringify(data, null, 2);
+        
+        // Current values
+        let currentHtml = `
+            <table>
+                <tr>
+                    <th>Scale</th>
+                    <th>Raw Value</th>
+                    <th>Zero Offset</th>
+                    <th>Adjusted Raw</th>
+                    <th>Calculated Weight (g)</th>
+                </tr>
+                <tr>
+                    <td>Scale 1</td>
+                    <td>${data.raw_values.scale1 || 'N/A'}</td>
+                    <td>${data.zero_offsets.scale1}</td>
+                    <td>${data.raw_values.scale1 ? (parseFloat(data.raw_values.scale1) - data.zero_offsets.scale1).toFixed(1) : 'N/A'}</td>
+                    <td>${typeof data.calculated_weights.scale1 === 'number' ? data.calculated_weights.scale1.toFixed(1) : data.calculated_weights.scale1 || 'N/A'}</td>
+                </tr>
+                <tr>
+                    <td>Scale 2</td>
+                    <td>${data.raw_values.scale2 || 'N/A'}</td>
+                    <td>${data.zero_offsets.scale2}</td>
+                    <td>${data.raw_values.scale2 ? (parseFloat(data.raw_values.scale2) - data.zero_offsets.scale2).toFixed(1) : 'N/A'}</td>
+                    <td>${typeof data.calculated_weights.scale2 === 'number' ? data.calculated_weights.scale2.toFixed(1) : data.calculated_weights.scale2 || 'N/A'}</td>
+                </tr>
+            </table>
+        `;
+        document.getElementById('current-values').innerHTML = currentHtml;
+        
+        // Calibration factors
+        let factorsHtml = `
+            <table>
+                <tr>
+                    <th>Scale</th>
+                    <th>Current Factor</th>
+                    <th>Target Factor (for 73g)</th>
+                </tr>
+                <tr>
+                    <td>Scale 1</td>
+                    <td>${data.calibration_factors.scale1 || 'Not set'}</td>
+                    <td>${typeof data.target_factors_for_73g.scale1 === 'number' ? data.target_factors_for_73g.scale1.toFixed(4) : data.target_factors_for_73g.scale1 || 'N/A'}</td>
+                </tr>
+                <tr>
+                    <td>Scale 2</td>
+                    <td>${data.calibration_factors.scale2 || 'Not set'}</td>
+                    <td>${typeof data.target_factors_for_73g.scale2 === 'number' ? data.target_factors_for_73g.scale2.toFixed(4) : data.target_factors_for_73g.scale2 || 'N/A'}</td>
+                </tr>
+            </table>
+        `;
+        document.getElementById('calibration-factors').innerHTML = factorsHtml;
+        
+        // Zero offsets
+        let zeroOffsetsHtml = `
+            <table>
+                <tr>
+                    <th>Scale</th>
+                    <th>App Memory Offset</th>
+                    <th>Database Offset</th>
+                    <th>Last Updated</th>
+                </tr>
+                <tr>
+                    <td>Scale 1</td>
+                    <td>${data.zero_offsets.scale1}</td>
+                    <td>${data.db_zero_offsets && data.db_zero_offsets['1'] ? data.db_zero_offsets['1'].value : 'Not set'}</td>
+                    <td>${data.db_zero_offsets && data.db_zero_offsets['1'] ? new Date(data.db_zero_offsets['1'].timestamp).toLocaleString() : 'N/A'}</td>
+                </tr>
+                <tr>
+                    <td>Scale 2</td>
+                    <td>${data.zero_offsets.scale2}</td>
+                    <td>${data.db_zero_offsets && data.db_zero_offsets['2'] ? data.db_zero_offsets['2'].value : 'Not set'}</td>
+                    <td>${data.db_zero_offsets && data.db_zero_offsets['2'] ? new Date(data.db_zero_offsets['2'].timestamp).toLocaleString() : 'N/A'}</td>
+                </tr>
+            </table>
+        `;
+        document.getElementById('zero-offsets').innerHTML = zeroOffsetsHtml;
+        
+        // Recent readings
+        if (data.recent_readings && data.recent_readings.length > 0) {
+            let readingsHtml = `
+                <table>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Scale 1 (g)</th>
+                        <th>Scale 2 (g)</th>
+                        <th>Raw Scale 1</th>
+                        <th>Raw Scale 2</th>
+                    </tr>
+            `;
+            
+            data.recent_readings.forEach(reading => {
+                readingsHtml += `
+                    <tr>
+                        <td>${new Date(reading.timestamp).toLocaleTimeString()}</td>
+                        <td>${reading.scale1 !== null ? reading.scale1.toFixed(1) : 'N/A'}</td>
+                        <td>${reading.scale2 !== null ? reading.scale2.toFixed(1) : 'N/A'}</td>
+                        <td>${reading.scale1_raw || 'N/A'}</td>
+                        <td>${reading.scale2_raw || 'N/A'}</td>
+                    </tr>
+                `;
+            });
+            
+            readingsHtml += '</table>';
+            document.getElementById('recent-readings').innerHTML = readingsHtml;
+        } else {
+            document.getElementById('recent-readings').innerHTML = '<p>No recent readings available</p>';
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching debug info:', error);
+        document.getElementById('debug-json').textContent = 'Error fetching debug info: ' + error.message;
+    });
+}
+
+function fixCalibration(scaleId) {
+    const weightInput = document.getElementById(`weight${scaleId}`);
+    const targetWeight = parseFloat(weightInput.value);
+    
+    if (isNaN(targetWeight) || targetWeight <= 0) {
+        document.getElementById(`fix-result${scaleId}`).textContent = 'Please enter a valid weight';
+        return;
+    }
+    
+    fetch(`/fix-calibration/${scaleId}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({target_weight: targetWeight})
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById(`fix-result${scaleId}`).textContent = data.message;
+        // Refresh debug info after applying fix
+        setTimeout(fetchDebugInfo, 500);
+    })
+    .catch(error => {
+        console.error('Error fixing calibration:', error);
+        document.getElementById(`fix-result${scaleId}`).textContent = 'Error: ' + error.message;
+    });
+}
+
+function resetZeroOffset(scaleId) {
+    fetch(`/reset-zero-offset/${scaleId}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('zero-offsets').textContent = data.message;
+        // Refresh debug info after resetting zero offset
+        setTimeout(fetchDebugInfo, 500);
+    })
+    .catch(error => {
+        console.error('Error resetting zero offset:', error);
+        document.getElementById('zero-offsets').textContent = 'Error: ' + error.message;
+    });
+}
+
+// Load initial data
+fetchDebugInfo();
+// Refresh data periodically
+setInterval(fetchDebugInfo, 5000);
+</script>
+{% endblock %} 

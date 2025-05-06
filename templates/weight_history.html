@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}Weight History{% endblock %}
+
+{% block extra_head %}
+    <!-- Chart.js v3+ -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/chart.js@^3"></script> -->
+    <!-- date-fns adapter for Chart.js -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/date-fns@^2"></script> -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@^2"></script> -->
+    <style>
+        /* .chart-container { position: relative; height: 350px; width: 95%; margin-bottom: 30px; } */
+        .controls { margin: 20px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px; }
+        .controls label, .controls select, .controls button { margin-right: 15px; font-size: 1em; }
+        .data-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .data-table th, .data-table td { border: 1px solid #dee2e6; padding: 8px; text-align: center; }
+        .data-table th { background-color: #e9ecef; }
+        .stats-table td { font-weight: bold; }
+        #lastUpdated { font-style: italic; color: #6c757d; }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <h1>⚖️ Weight History</h1>
+
+    <div class="controls">
+        <button onclick="window.location.href='/'">Back to Home</button>
+        <button onclick="fetchData()">Refresh Data</button>
+        <label for="autoRefresh">Auto-refresh:</label>
+        <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh(this.checked)">
+        <label for="timeRange">Time Range:</label>
+        <select id="timeRange" onchange="fetchData()">
+            <option value="all">All data</option>
+            <option value="1">Last 1 hour</option>
+            <option value="6">Last 6 hours</option>
+            <option value="24">Last 24 hours</option>
+            <option value="72">Last 3 days</option>
+            <option value="168">Last 7 days</option>
+        </select>
+        <span id="lastUpdated"></span>
+    </div>
+
+    <div id="error-message" style="color: red; margin-bottom: 15px; display: none;"></div>
+
+    <p><strong>Last recorded weight:</strong> Scale 1: <span id="latestScale1">-</span>g, Scale 2: <span id="latestScale2">-</span>g (as of <span id="lastTimestamp">-</span>)</p>
+
+    <!-- <div class="chart-container">
+        <canvas id="weightChartCanvas"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="rawChartCanvas"></canvas>
+    </div> -->
+
+    <h3>Recent Scale Readings</h3>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Scale 1 (g)</th>
+                <th>Scale 2 (g)</th>
+                <th>Raw Scale 1</th>
+                <th>Raw Scale 2</th>
+            </tr>
+        </thead>
+        <tbody id="readingsTableBody">
+            <tr><td colspan="5">Loading...</td></tr>
+        </tbody>
+    </table>
+
+    <h3>Statistics</h3>
+    <table class="data-table stats-table">
+         <thead>
+            <tr>
+                <th>Metric</th>
+                <th>Scale 1</th>
+                <th>Scale 2</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>Count</td><td id="count1">-</td><td id="count2">-</td></tr>
+            <tr><td>Average</td><td id="avg1">-</td><td id="avg2">-</td></tr>
+            <tr><td>Min</td><td id="min1">-</td><td id="min2">-</td></tr>
+            <tr><td>Max</td><td id="max1">-</td><td id="max2">-</td></tr>
+            <tr><td>Std Dev</td><td id="std1">-</td><td id="std2">-</td></tr>
+        </tbody>
+    </table>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // let weightChartInstance = null;
+    // let rawChartInstance = null;
+    let autoRefreshTimer = null;
+    const REFRESH_INTERVAL = 15000; // 15 seconds
+    let isFetchingData = false; // Add flag to prevent concurrent updates
+
+    // --- Utility Functions ---
+    function formatTimestamp(timestampValue) {
+        // Handles both Date objects and millisecond timestamps
+        if (!timestampValue) return 'N/A';
+        try {
+            const date = new Date(timestampValue); // Works for both Date objects and milliseconds
+            return isNaN(date.getTime()) ? 'Invalid Date' : date.toLocaleString();
+        } catch (e) {
+            console.error("Error formatting timestamp:", timestampValue, e);
+            return 'Invalid Date';
+        }
+    }
+
+    function displayError(message) {
+        const errorDiv = document.getElementById('error-message');
+        errorDiv.textContent = `Error: ${message}`;
+        errorDiv.style.display = 'block';
+    }
+
+    function clearError() {
+        document.getElementById('error-message').style.display = 'none';
+    }
+
+    // --- Data Processing ---
+    function validateAndFilterData(rawData) {
+        if (!Array.isArray(rawData)) {
+            console.error("Invalid data received:", rawData);
+            return [];
+        }
+        return rawData.filter(entry => {
+            // Explicitly check for null/undefined timestamp *before* creating Date
+            if (entry === null || entry === undefined || entry.timestamp === null || entry.timestamp === undefined) {
+                console.warn("Filtering out entry with null/undefined data or timestamp:", entry);
+                return false;
+            }
+            const d = new Date(entry.timestamp);
+            const isValid = !isNaN(d.getTime());
+            if (!isValid) {
+                 console.warn("Filtering out entry with invalid timestamp:", entry.timestamp, entry);
+            }
+            return isValid;
+        }).map(entry => ({ // Ensure numeric types where expected
+            timestamp: new Date(entry.timestamp).getTime(), // Store as milliseconds since epoch
+            scale1: (entry.scale1 === null || entry.scale1 === undefined) ? null : Number(entry.scale1),
+            scale2: (entry.scale2 === null || entry.scale2 === undefined) ? null : Number(entry.scale2),
+            scale1_raw: (entry.scale1_raw === null || entry.scale1_raw === undefined) ? null : Number(entry.scale1_raw),
+            scale2_raw: (entry.scale2_raw === null || entry.scale2_raw === undefined) ? null : Number(entry.scale2_raw)
+        })).sort((a, b) => a.timestamp - b.timestamp); // Sort chronologically
+    }
+
+    function filterByTimeRange(data) {
+        const timeRangeValue = document.getElementById('timeRange').value;
+        if (timeRangeValue === 'all') {
+            return data;
+        }
+        const hours = parseInt(timeRangeValue, 10);
+        const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+        return data.filter(entry => entry.timestamp >= cutoff.getTime()); // Compare milliseconds
+    }
+
+    // --- UI Updates ---
+    function updateLatestReadings(data) {
+        if (data.length > 0) {
+            const latest = data[data.length - 1];
+            document.getElementById('latestScale1').textContent = latest.scale1?.toFixed(1) ?? 'N/A';
+            document.getElementById('latestScale2').textContent = latest.scale2?.toFixed(1) ?? 'N/A';
+            document.getElementById('lastTimestamp').textContent = formatTimestamp(latest.timestamp); // Pass milliseconds
+        } else {
+            document.getElementById('latestScale1').textContent = '-';
+            document.getElementById('latestScale2').textContent = '-';
+            document.getElementById('lastTimestamp').textContent = '-';
+        }
+    }
+
+    function updateReadingsTable(data) {
+        const tableBody = document.getElementById('readingsTableBody');
+        if (data.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="5">No data in selected range.</td></tr>';
+            return;
+        }
+        // Show latest 50 readings max in table
+        const reversedData = [...data].reverse().slice(0, 50);
+        tableBody.innerHTML = reversedData.map(entry => `
+            <tr>
+                <td>${formatTimestamp(entry.timestamp)}</td>
+                <td>${entry.scale1?.toFixed(1) ?? 'N/A'}</td>
+                <td>${entry.scale2?.toFixed(1) ?? 'N/A'}</td>
+                <td>${entry.scale1_raw ?? 'N/A'}</td>
+                <td>${entry.scale2_raw ?? 'N/A'}</td>
+            </tr>
+        `).join('');
+    }
+
+    function calculateStats(values) {
+        const validValues = values.filter(v => v !== null && !isNaN(v));
+        if (validValues.length === 0) {
+            return { count: 0, avg: null, min: null, max: null, std: null };
+        }
+        const count = validValues.length;
+        const sum = validValues.reduce((a, b) => a + b, 0);
+        const avg = sum / count;
+        const min = Math.min(...validValues);
+        const max = Math.max(...validValues);
+        const variance = validValues.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / count;
+        const std = Math.sqrt(variance);
+        return { count, avg, min, max, std };
+    }
+
+    function updateStatisticsTable(data) {
+        const stats1 = calculateStats(data.map(e => e.scale1));
+        const stats2 = calculateStats(data.map(e => e.scale2));
+
+        document.getElementById('count1').textContent = stats1.count;
+        document.getElementById('avg1').textContent = stats1.avg?.toFixed(1) ?? '-';
+        document.getElementById('min1').textContent = stats1.min?.toFixed(1) ?? '-';
+        document.getElementById('max1').textContent = stats1.max?.toFixed(1) ?? '-';
+        document.getElementById('std1').textContent = stats1.std?.toFixed(1) ?? '-';
+
+        document.getElementById('count2').textContent = stats2.count;
+        document.getElementById('avg2').textContent = stats2.avg?.toFixed(1) ?? '-';
+        document.getElementById('min2').textContent = stats2.min?.toFixed(1) ?? '-';
+        document.getElementById('max2').textContent = stats2.max?.toFixed(1) ?? '-';
+        document.getElementById('std2').textContent = stats2.std?.toFixed(1) ?? '-';
+    }
+
+    // --- Main Data Fetch and Refresh Logic ---
+    function fetchData() {
+        // Prevent concurrent fetches
+        if (isFetchingData) {
+            console.log("Fetch already in progress, skipping.");
+            return;
+        }
+        isFetchingData = true; // Set flag
+        
+        console.log("Fetching data...");
+        clearError(); // Clear previous errors
+        document.getElementById('lastUpdated').textContent = 'Loading...';
+
+        fetch('/scale-readings')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(rawData => {
+                console.log("Data received:", rawData);
+                const validData = validateAndFilterData(rawData);
+                console.log("Validated data count:", validData.length);
+                const filteredData = filterByTimeRange(validData);
+                console.log("Filtered data count:", filteredData.length);
+
+                updateLatestReadings(filteredData);
+                updateReadingsTable(filteredData);
+                updateStatisticsTable(filteredData);
+                // updateCharts(filteredData); // Update charts after processing - COMMENTED OUT
+
+                document.getElementById('lastUpdated').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+            })
+            .catch(error => {
+                console.error('Error fetching or processing data:', error);
+                displayError(error.message);
+                document.getElementById('lastUpdated').textContent = 'Error loading data.';
+            })
+            .finally(() => {
+                isFetchingData = false; // Unset flag regardless of success/error
+                console.log("Fetch complete, flag reset.");
+            });
+    }
+
+    function toggleAutoRefresh(enable) {
+        if (enable) {
+            if (!autoRefreshTimer) {
+                console.log(`Enabling auto-refresh every ${REFRESH_INTERVAL}ms`);
+                fetchData(); // Refresh immediately
+                autoRefreshTimer = setInterval(fetchData, REFRESH_INTERVAL);
+                document.getElementById('lastUpdated').textContent = 'Auto-refresh enabled.';
+            }
+        } else {
+            if (autoRefreshTimer) {
+                console.log("Disabling auto-refresh");
+                clearInterval(autoRefreshTimer);
+                autoRefreshTimer = null;
+                document.getElementById('lastUpdated').textContent = '';
+            }
+        }
+    }
+
+    // --- Initial Load ---
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log("DOM fully loaded and parsed. Fetching initial data.");
+        fetchData(); // Load data when the page is ready
+    });
+
+</script>
+{% endblock %} 

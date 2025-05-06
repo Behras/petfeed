@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h1>Smart Pet Feeder</h1>
+    <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+        <div style="flex: 1;">
+            <h3>Pet Bowl</h3>
+            <p>Current weight: <span id="scale1">{{ initial_scale1_display }}</span>g</p>
+        </div>
+        <div style="flex: 1;">
+            <h3>Food Storage</h3>
+            <p>Current weight: <span id="scale2">{{ initial_scale2_display }}</span>g</p>
+        </div>
+    </div>
+    
+    <div style="margin-bottom: 20px;">
+        <label>Amount to dispense (grams):</label>
+        <select id="amount" style="width: 200px;">
+            <option value="10">10g</option>
+            <option value="20">20g</option>
+            <option value="30">30g</option>
+            <option value="40">40g</option>
+            <option value="50">50g</option>
+            <option value="75">75g</option>
+            <option value="100">100g</option>
+            <option value="150">150g</option>
+            <option value="200">200g</option>
+        </select>
+    </div>
+
+    <button onclick="window.location.href='/schedule'">Schedule Feeding</button><br><br>
+    <button onclick="window.location.href='/devices'">My Devices</button><br><br>
+    <button onclick="window.location.href='/stats-page'">View Statistics</button><br><br>
+    <button onclick="window.location.href='/weight-history'">Weight History</button><br><br>
+    <button onclick="subscribe()">Subscribe to Notifications</button><br><br>
+    <button onclick="feedNow()">Feed Now</button><br>
+    <button onclick="clearJam()" style="margin-top: 5px; background-color: #f44336; color: white;">Clear Jam (Reverse Motor)</button><br><br>
+    <button onclick="window.location.href='/dev-options'">Dev Options</button><br><br>
+    <p>Status: <span id="status">Loading...</span></p>
+    <h2>Feed Logs:</h2>
+    <table border="1">
+        <thead><tr><th>ID</th><th>Timestamp</th><th>Amount</th><th>Status</th><th>Notes</th></tr></thead>
+        <tbody id="logs"></tbody>
+    </table>
+    <p style="font-style: italic; color: #6c757d; font-size: 0.9em;">Note: Device checks for commands every 10 minutes. Actions may be delayed.</p>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        function feedNow() {
+            const amount = document.getElementById('amount').value;
+            fetch('/feed-now', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ amount: amount })
+            })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                loadLogs();
+                loadStatus();
+            });
+        }
+
+        function loadLogs() {
+            fetch('/logs')
+            .then(res => res.json())
+            .then(data => {
+                let html = '';
+                data.forEach(row => {
+                    html += `<tr>
+                        <td>${row.id}</td>
+                        <td>${row.timestamp}</td>
+                        <td>${row.amount}</td>
+                        <td>${row.status}</td>
+                        <td>${row.notes}</td>
+                    </tr>`;
+                });
+                document.getElementById('logs').innerHTML = html;
+            });
+        }
+
+        function loadStatus() {
+            fetch('/status')
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('status').innerText = data.state;
+            });
+        }
+
+        function subscribe() {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/static/sw.js').then(function(reg) {
+                    return reg.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array('{{ vapid_public_key }}')
+                    });
+                }).then(function(sub) {
+                    return fetch('/subscribe', {
+                        method: 'POST',
+                        body: JSON.stringify(sub),
+                        headers: {'Content-Type': 'application/json'}
+                    });
+                }).then(function() {
+                    alert('Subscribed!');
+                }).catch(console.error);
+            } else {
+                alert('Push not supported on this browser.');
+            }
+        }
+
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding)
+                .replace(/\-/g, '+')
+                .replace(/_/g, '/');
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
+        function clearJam() {
+            console.log("Sending clear jam request...");
+            fetch('/clear-jam', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                loadStatus(); // Update status maybe?
+            })
+            .catch(error => {
+                console.error('Error sending clear jam request:', error);
+                alert('Failed to send clear jam command.');
+            });
+        }
+
+        loadLogs();
+        loadStatus();
+        setInterval(loadStatus, 5000); // auto-refresh status every 5 sec
+    </script>
+{% endblock %} 

@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block title %}Feeding Statistics{% endblock %}
+
+{% block extra_head %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+    <h1>📊 Feeding Statistics</h1>
+    
+    <div style="margin: 20px 0;">
+        <label>Time Range:</label>
+        <select id="timeRange" onchange="loadStats()">
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="365">Last year</option>
+        </select>
+    </div>
+
+    <div style="display: flex; gap: 20px; margin-bottom: 20px;">
+        <div style="flex: 1;">
+            <h3>Daily Feeding Amounts</h3>
+            <canvas id="dailyChart"></canvas>
+        </div>
+        <div style="flex: 1;">
+            <h3>Total Food Dispensed</h3>
+            <canvas id="totalChart"></canvas>
+        </div>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <h3>Summary</h3>
+        <p>Total feedings: <span id="totalFeedings">0</span></p>
+        <p>Average amount per feeding: <span id="avgAmount">0</span>g</p>
+        <p>Total food dispensed: <span id="totalAmount">0</span>g</p>
+    </div>
+
+    <br>
+    <button onclick="window.location.href='/stats-page'">View Statistics</button>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        let dailyChart, totalChart;
+
+        function loadStats() {
+            const days = document.getElementById('timeRange').value;
+            fetch(`/stats?days=${days}`)
+            .then(res => res.json())
+            .then(data => {
+                updateCharts(data);
+                updateSummary(data);
+            });
+        }
+
+        function updateCharts(data) {
+            // Update daily chart
+            if (dailyChart) {
+                dailyChart.destroy();
+            }
+            const dailyCtx = document.getElementById('dailyChart').getContext('2d');
+            dailyChart = new Chart(dailyCtx, {
+                type: 'bar',
+                data: {
+                    labels: data.dates,
+                    datasets: [{
+                        label: 'Amount (g)',
+                        data: data.amounts,
+                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // Update total chart
+            if (totalChart) {
+                totalChart.destroy();
+            }
+            const totalCtx = document.getElementById('totalChart').getContext('2d');
+            totalChart = new Chart(totalCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['Scale 1', 'Scale 2'],
+                    datasets: [{
+                        data: [data.scale1_total, data.scale2_total],
+                        backgroundColor: [
+                            'rgba(255, 99, 132, 0.5)',
+                            'rgba(54, 162, 235, 0.5)'
+                        ],
+                        borderColor: [
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(54, 162, 235, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true
+                }
+            });
+        }
+
+        function updateSummary(data) {
+            document.getElementById('totalFeedings').textContent = data.total_feedings;
+            document.getElementById('avgAmount').textContent = data.avg_amount.toFixed(1);
+            document.getElementById('totalAmount').textContent = data.total_amount;
+        }
+
+        // Load initial data
+        loadStats();
+    </script>
+{% endblock %} 

@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}Dev Options{% endblock %}
+
+{% block content %}
+<h1>🛠️ Developer Options</h1>
+
+<div style="margin-bottom: 20px;">
+    <h3>Current Scale Values</h3>
+    <p>Scale 1: <span id="scale1">0</span>g</p>
+    <p>Scale 2: <span id="scale2">0</span>g</p>
+</div>
+
+<div style="margin-bottom: 20px;">
+    <button onclick="tareScale(1)">Tare Scale 1</button>
+    <button onclick="tareScale(2)">Tare Scale 2</button>
+</div>
+
+<div style="margin-bottom: 20px;">
+    <h3>Calibration</h3>
+    <div style="border: 1px solid #ddd; padding: 10px; margin-bottom: 15px; background-color: #f9f9f9;">
+        <p><strong>Calibration Steps:</strong></p>
+        <ol>
+            <li>Remove all weights from the scale</li>
+            <li>Press "Tare Scale" button above to set zero point</li>
+            <li>Place known weight on the scale</li>
+            <li>Enter exact weight value below and press "Calibrate"</li>
+            <li>When removing the weight, reading should return to 0g</li>
+        </ol>
+        <p><strong>Note:</strong> Always tare when scale is empty before calibration!</p>
+    </div>
+    <div>
+        <label>Scale 1: Place known weight, enter value (g): </label>
+        <input type="number" id="calib1" min="1" style="width:80px;">
+        <button onclick="calibrateScale(1)">Calibrate Scale 1</button>
+        <span id="factor1"></span>
+    </div>
+    <div>
+        <label>Scale 2: Place known weight, enter value (g): </label>
+        <input type="number" id="calib2" min="1" style="width:80px;">
+        <button onclick="calibrateScale(2)">Calibrate Scale 2</button>
+        <span id="factor2"></span>
+    </div>
+</div>
+
+<div style="margin-bottom: 20px;">
+    <h3>Live Scale Readings</h3>
+    <canvas id="scaleChart" height="100"></canvas>
+</div>
+
+<div style="margin-bottom: 20px;">
+    <h3>Recent Scale Readings Table</h3>
+    <table border="1" style="width:100%; max-width:800px;">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Scale 1 (g)</th>
+                <th>Scale 2 (g)</th>
+                <th>Raw Scale 1</th>
+                <th>Raw Scale 2</th>
+            </tr>
+        </thead>
+        <tbody id="scaleReadingsTable">
+            <tr><td colspan="5">Loading data...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div style="margin-bottom: 20px;">
+    <h3>Motor Test</h3>
+    <label>Direction:
+        <select id="motorDir">
+            <option value="forward">Forward</option>
+            <option value="reverse">Reverse</option>
+        </select>
+    </label>
+    <label>Duration (seconds):
+        <input type="number" id="motorDur" min="1" max="10" value="2" style="width:60px;">
+    </label>
+    <button onclick="motorTest()">Run Motor Test</button>
+    <span id="motorStatus"></span>
+</div>
+
+<div style="margin-bottom: 20px;">
+    <h3>ESP32 Status</h3>
+    <p>IP: <span id="esp32ip">-</span></p>
+    <p>Wi-Fi RSSI: <span id="esp32rssi">-</span></p>
+    <p>Firmware: <span id="esp32fw">-</span></p>
+    <p>Last Check-in: <span id="esp32last">-</span></p>
+    <button onclick="restartESP32()">Restart ESP32</button>
+    <span id="esp32restart"></span>
+</div>
+
+<p id="status"></p>
+
+<br>
+<button onclick="window.location.href='/weight-history'">Detailed Weight History</button>
+<button onclick="window.location.href='/'">Back to Home</button>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+function loadScales() {
+    fetch('/scales')
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('scale1').textContent = data.scale1;
+        document.getElementById('scale2').textContent = data.scale2;
+    });
+}
+
+function tareScale(scaleId) {
+    fetch(`/tare-request/${scaleId}`, {method: 'POST'})
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('status').textContent = data.message;
+        loadScales();
+    });
+}
+
+let scaleChart;
+
+function loadScaleGraph() {
+    fetch('/scale-readings')
+    .then(res => res.json())
+    .then(data => {
+        // Only proceed if we have data
+        if (!data || data.length === 0) {
+            return;
+        }
+        
+        // Update chart
+        const labels = data.map(d => d.timestamp.split('T')[1].slice(0,8));
+        const scale1 = data.map(d => d.scale1);
+        const scale2 = data.map(d => d.scale2);
+        if (scaleChart) scaleChart.destroy();
+        const ctx = document.getElementById('scaleChart').getContext('2d');
+        scaleChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'Scale 1', data: scale1, borderColor: 'blue', fill: false },
+                    { label: 'Scale 2', data: scale2, borderColor: 'green', fill: false }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+
+        // Update readings table
+        let tableHtml = '';
+        // Reverse to show newest first
+        const reversedData = [...data].reverse();
+        // Take only the last 20 readings
+        const recentData = reversedData.slice(0, 20);
+        
+        if (recentData.length > 0) {
+            recentData.forEach(entry => {
+                const time = entry.timestamp.split('T')[1].slice(0,8);
+                const scale1 = entry.scale1 !== null && entry.scale1 !== undefined ? entry.scale1 : 'N/A';
+                const scale2 = entry.scale2 !== null && entry.scale2 !== undefined ? entry.scale2 : 'N/A';
+                const scale1_raw = entry.scale1_raw !== undefined ? entry.scale1_raw : 'N/A';
+                const scale2_raw = entry.scale2_raw !== undefined ? entry.scale2_raw : 'N/A';
+                
+                tableHtml += `<tr>
+                    <td>${time}</td>
+                    <td>${typeof scale1 === 'number' ? scale1.toFixed(1) : scale1}</td>
+                    <td>${typeof scale2 === 'number' ? scale2.toFixed(1) : scale2}</td>
+                    <td>${scale1_raw}</td>
+                    <td>${scale2_raw}</td>
+                </tr>`;
+            });
+            
+            document.getElementById('scaleReadingsTable').innerHTML = tableHtml;
+        }
+    })
+    .catch(error => {
+        console.error('Error loading scale data:', error);
+        // Don't clear the table on error
+    });
+}
+
+function calibrateScale(scaleId) {
+    const val = document.getElementById('calib' + scaleId).value;
+    if (!val) { alert('Enter known weight!'); return; }
+    fetch(`/calibrate-scale/${scaleId}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({known_weight: val})
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('status').textContent = data.message;
+        loadFactors();
+    });
+}
+
+function loadFactors() {
+    fetch('/calibration-factors')
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('factor1').textContent = 'Current factor: ' + (data[1] || 'N/A');
+        document.getElementById('factor2').textContent = 'Current factor: ' + (data[2] || 'N/A');
+    });
+}
+
+function motorTest() {
+    const dir = document.getElementById('motorDir').value;
+    const dur = document.getElementById('motorDur').value;
+    fetch('/motor-test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({direction: dir, duration: dur})
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('motorStatus').textContent = data.message;
+    });
+}
+
+function loadESP32Status() {
+    fetch('/esp32-status')
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('esp32ip').textContent = data.ip || '-';
+        document.getElementById('esp32rssi').textContent = data.rssi || '-';
+        document.getElementById('esp32fw').textContent = data.firmware || '-';
+        document.getElementById('esp32last').textContent = data.last_checkin ? new Date(data.last_checkin).toLocaleString() : '-';
+    });
+}
+
+function restartESP32() {
+    fetch('/esp32-restart', {method: 'POST'})
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('esp32restart').textContent = data.message;
+    });
+}
+
+loadScales();
+setInterval(loadScales, 5000);
+loadScaleGraph();
+setInterval(loadScaleGraph, 5000);
+loadFactors();
+loadESP32Status();
+setInterval(loadESP32Status, 10000);
+</script>
+{% endblock %} 

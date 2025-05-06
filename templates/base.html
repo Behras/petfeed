@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% block title %}Smart Pet Feeder{% endblock %}</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 10px; max-width: 100%; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { padding: 10px; text-align: center; }
+        input, button { font-size: 1.2em; width: 100%; padding: 10px; margin: 5px 0; }
+        
+        /* Navigation bar styles */
+        .navbar {
+            background-color: #4CAF50;
+            overflow: hidden;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .navbar a {
+            float: left;
+            color: white;
+            text-align: center;
+            padding: 14px 16px;
+            text-decoration: none;
+            font-size: 17px;
+        }
+        .navbar a:hover {
+            background-color: #45a049;
+        }
+        .navbar a.active {
+            background-color: #45a049;
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <div class="navbar">
+        <a href="/">Home</a>
+        <a href="/weight-history">Weight History</a>
+        <a href="/schedule">Schedule</a>
+        <a href="/stats">Stats</a>
+        <a href="/dev-options">Developer</a>
+    </div>
+    
+    {% block content %}{% endblock %}
+    {% block scripts %}{% endblock %}
+</body>
+</html> 
